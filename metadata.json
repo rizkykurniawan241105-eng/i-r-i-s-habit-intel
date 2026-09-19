@@ -1,0 +1,7 @@
+{
+  "name": "I.R.I.S. Habit Intel",
+  "description": "Personal Productivity & Habit Tracker Dashboard terintegrasi dengan Google Sheets, Google Tasks, dan Google Calendar.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
