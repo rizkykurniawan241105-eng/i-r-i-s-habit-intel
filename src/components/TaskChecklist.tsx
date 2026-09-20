@@ -13,6 +13,9 @@ import {
   FileText,
   CalendarPlus,
   Sparkles,
+  RotateCcw,
+  Database,
+  Layers,
 } from 'lucide-react';
 import { HabitTask } from '../types';
 import { CATEGORY_COLORS } from '../data/dummyData';
@@ -24,6 +27,10 @@ export interface TaskChecklistProps {
   onOpenQuickAdd: () => void;
   onAddToCalendar?: (habit: HabitTask) => void;
   onOpenAiAssistant?: () => void;
+  onResetDay?: () => void;
+  onManualSync?: () => void;
+  taskListName?: string | null;
+  isSyncing?: boolean;
 }
 
 export const TaskChecklist: React.FC<TaskChecklistProps> = ({
@@ -33,11 +40,23 @@ export const TaskChecklist: React.FC<TaskChecklistProps> = ({
   onOpenQuickAdd,
   onAddToCalendar,
   onOpenAiAssistant,
+  onResetDay,
+  onManualSync,
+  taskListName,
+  isSyncing = false,
 }) => {
   const safeHabits = Array.isArray(habits) ? habits : [];
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [scheduleFilter, setScheduleFilter] = useState<'today' | 'weekday' | 'weekend' | 'all'>('today');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showConfirmReset, setShowConfirmReset] = useState<boolean>(false);
+
+  const now = new Date();
+  const dayNumber = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  const isWeekendToday = dayNumber === 0 || dayNumber === 6;
+  const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  const currentDayName = dayNames[dayNumber];
 
   const categories = ['all', 'Ibadah', 'Sekolah/Belajar', 'Rutin Harian', 'Rehat/OSIS', 'Olahraga & Kesehatan'];
 
@@ -59,6 +78,22 @@ export const TaskChecklist: React.FC<TaskChecklistProps> = ({
 
   const filteredHabits = safeHabits.filter((habit) => {
     if (!habit) return false;
+
+    // Filter by Schedule (Senin-Jumat vs Sabtu-Minggu)
+    if (scheduleFilter === 'today') {
+      if (isWeekendToday) {
+        // Akhir pekan: tampilkan kegiatan Sabtu-Minggu dan Setiap Hari
+        if (habit.scheduleType === 'weekday') return false;
+      } else {
+        // Hari kerja: tampilkan kegiatan Senin-Jumat dan Setiap Hari
+        if (habit.scheduleType === 'weekend') return false;
+      }
+    } else if (scheduleFilter === 'weekday') {
+      if (habit.scheduleType === 'weekend') return false;
+    } else if (scheduleFilter === 'weekend') {
+      if (habit.scheduleType === 'weekday') return false;
+    }
+
     const matchesCategory = selectedCategory === 'all' || habit.category === selectedCategory;
     const matchesSearch =
       (habit.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -83,15 +118,69 @@ export const TaskChecklist: React.FC<TaskChecklistProps> = ({
                 Daftar Kegiatan & Checklist Harian
               </h3>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Tersinkron dengan arsitektur Google Tasks & Spreadsheet
-            </p>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/60 dark:border-emerald-800/60 px-2 py-0.5 rounded-md">
+                <Layers className="w-3 h-3 text-emerald-500" />
+                Input: Google Tasks ({taskListName || 'Tugas Saya'})
+              </span>
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/60 dark:border-indigo-800/60 px-2 py-0.5 rounded-md">
+                <Database className="w-3 h-3 text-indigo-500" />
+                DB: Google Sheets
+              </span>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
               {completedCount} / {safeHabits.length} Selesai
             </span>
+
+            {/* Reset Centang Hari Baru Button */}
+            {onResetDay && (
+              <div className="relative">
+                <button
+                  id="reset-day-checkboxes-btn"
+                  onClick={() => setShowConfirmReset(true)}
+                  disabled={isSyncing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition shadow-sm active:scale-95 border border-slate-200/60 dark:border-slate-700"
+                  title="Reset centang untuk hari baru & simpan riwayat ke Google Sheets"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-amber-500" />
+                  <span className="hidden sm:inline">Reset Hari Baru</span>
+                  <span className="sm:hidden">Reset</span>
+                </button>
+
+                {/* Confirm Reset Popup */}
+                {showConfirmReset && (
+                  <div className="absolute right-0 top-full mt-2 w-72 p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl z-50 animate-fade-in">
+                    <p className="text-xs font-bold text-slate-900 dark:text-white">
+                      Mulai Hari Baru?
+                    </p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                      Progres hari ini akan diarsipkan ke Google Sheets database, dan semua centang tugas di Google Tasks & aplikasi akan direset untuk hari ini.
+                    </p>
+                    <div className="flex items-center justify-end gap-2 mt-3">
+                      <button
+                        onClick={() => setShowConfirmReset(false)}
+                        className="px-2.5 py-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-semibold"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowConfirmReset(false);
+                          onResetDay();
+                        }}
+                        className="px-3 py-1 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow-sm"
+                      >
+                        Ya, Reset Hari Baru
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {onOpenAiAssistant && (
               <button
                 id="tasklist-open-gemini-ai-btn"
@@ -100,10 +189,11 @@ export const TaskChecklist: React.FC<TaskChecklistProps> = ({
                 title="Kelola dengan Gemini AI"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Tanya Gemini AI</span>
+                <span className="hidden sm:inline">Gemini AI</span>
                 <span className="sm:hidden">AI</span>
               </button>
             )}
+
             <button
               id="add-task-header-btn"
               onClick={onOpenQuickAdd}
@@ -115,8 +205,57 @@ export const TaskChecklist: React.FC<TaskChecklistProps> = ({
           </div>
         </div>
 
+        {/* Schedule Filter Tabs (Senin-Jumat vs Sabtu-Minggu) */}
+        <div className="mt-4 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 grid grid-cols-2 sm:grid-cols-4 gap-1">
+          <button
+            id="tab-sched-today"
+            onClick={() => setScheduleFilter('today')}
+            className={`py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+              scheduleFilter === 'today'
+                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+            }`}
+          >
+            <span>Hari Ini ({currentDayName})</span>
+            <span className={`w-2 h-2 rounded-full ${isWeekendToday ? 'bg-purple-500' : 'bg-indigo-500'}`} />
+          </button>
+          <button
+            id="tab-sched-weekday"
+            onClick={() => setScheduleFilter('weekday')}
+            className={`py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+              scheduleFilter === 'weekday'
+                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+            }`}
+          >
+            <span>Senin - Jumat</span>
+          </button>
+          <button
+            id="tab-sched-weekend"
+            onClick={() => setScheduleFilter('weekend')}
+            className={`py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+              scheduleFilter === 'weekend'
+                ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+            }`}
+          >
+            <span>Sabtu - Minggu</span>
+          </button>
+          <button
+            id="tab-sched-all"
+            onClick={() => setScheduleFilter('all')}
+            className={`py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+              scheduleFilter === 'all'
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+            }`}
+          >
+            <span>Semua Rutinitas</span>
+          </button>
+        </div>
+
         {/* Search & Category Filter Pills */}
-        <div className="mt-4 space-y-3">
+        <div className="mt-3 space-y-3">
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -151,9 +290,44 @@ export const TaskChecklist: React.FC<TaskChecklistProps> = ({
         {/* Task List Items */}
         <div className="mt-4 space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
           {filteredHabits.length === 0 ? (
-            <div className="py-12 text-center text-slate-400 text-xs">
-              Tidak ada kegiatan yang cocok dengan filter.
-            </div>
+            safeHabits.length === 0 ? (
+              <div className="py-12 px-4 text-center rounded-xl bg-slate-50/60 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-800 space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 mx-auto flex items-center justify-center">
+                  <CheckCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-extrabold text-slate-800 dark:text-slate-200">
+                    Belum Ada Kegiatan (Data Awal Nol)
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
+                    Grafik dan statistik masih bernilai 0. Mulai tambahkan kegiatan baru atau sinkronkan tugas dari Google Tasks akun Anda.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  <button
+                    onClick={onOpenQuickAdd}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition shadow-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Tambah Kegiatan Pertama</span>
+                  </button>
+                  {onManualSync && (
+                    <button
+                      onClick={onManualSync}
+                      disabled={isSyncing}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-300 dark:hover:bg-slate-600 transition"
+                    >
+                      <RotateCcw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                      <span>Tarik dari Google Tasks</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="py-12 text-center text-slate-400 text-xs">
+                Tidak ada kegiatan yang cocok dengan filter jadwal/kategori ini.
+              </div>
+            )
           ) : (
             filteredHabits.map((habit) => {
               const categoryColor = CATEGORY_COLORS[habit.category] || CATEGORY_COLORS['Sekolah/Belajar'];
@@ -170,7 +344,7 @@ export const TaskChecklist: React.FC<TaskChecklistProps> = ({
                   }`}
                 >
                   <div className="flex items-start gap-3">
-                    {/* Checkbox */}
+                    {/* Checkbox (Inputs to Google Tasks) */}
                     <button
                       id={`checkbox-${habit.id}`}
                       onClick={() => handleToggle(habit)}
@@ -232,6 +406,21 @@ export const TaskChecklist: React.FC<TaskChecklistProps> = ({
                           {habit.time} WIB
                         </span>
 
+                        {/* Schedule Badge (Senin-Jumat vs Sabtu-Minggu) */}
+                        {habit.scheduleType === 'weekday' ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60">
+                            Senin - Jumat
+                          </span>
+                        ) : habit.scheduleType === 'weekend' ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800/60">
+                            Sabtu - Minggu
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                            Setiap Hari
+                          </span>
+                        )}
+
                         {/* Category Badge */}
                         <span
                           className={`text-[11px] font-semibold px-2 py-0.5 rounded-md border ${categoryColor.bgBadge}`}
@@ -248,6 +437,12 @@ export const TaskChecklist: React.FC<TaskChecklistProps> = ({
                         {habit.googleTaskId && (
                           <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-0.5">
                             • Google Tasks
+                          </span>
+                        )}
+
+                        {habit.completedAt && (
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                            (selesai {habit.completedAt})
                           </span>
                         )}
                       </div>
@@ -269,10 +464,10 @@ export const TaskChecklist: React.FC<TaskChecklistProps> = ({
       </div>
 
       {/* Footer Info */}
-      <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-        <span>Setiap centang otomatis me-recalculate skor & kurva grafik.</span>
+      <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+        <span className="truncate">Google Tasks sebagai input centang • Google Sheets sebagai database.</span>
         <span className="font-semibold text-indigo-600 dark:text-indigo-400">
-          Auto-Save Active
+          Auto-Sync Aktif
         </span>
       </div>
     </div>

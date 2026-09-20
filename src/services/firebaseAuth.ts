@@ -19,35 +19,61 @@ provider.addScope('https://www.googleapis.com/auth/drive.file');
 provider.addScope('https://www.googleapis.com/auth/tasks');
 provider.addScope('https://www.googleapis.com/auth/calendar.events');
 
+const TOKEN_KEY = 'iris_g_access_token';
+const USER_KEY = 'iris_g_user';
+
 let isSigningIn = false;
-let cachedAccessToken: string | null = null;
+let cachedAccessToken: string | null = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
+
+export const getSavedUser = (): GoogleUser | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.warn('Error reading saved user', e);
+  }
+  return null;
+};
 
 export const initAuth = (
   onAuthSuccess?: (user: GoogleUser, token: string) => void,
   onAuthFailure?: () => void
 ) => {
+  // If we already have a saved user & token in localStorage, immediately trigger success!
+  const savedUser = getSavedUser();
+  const savedToken = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
+  if (savedUser && savedToken) {
+    cachedAccessToken = savedToken;
+    if (onAuthSuccess) {
+      onAuthSuccess(savedUser, savedToken);
+    }
+  }
+
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
-      if (cachedAccessToken) {
+      const activeToken = cachedAccessToken || localStorage.getItem(TOKEN_KEY);
+      if (activeToken) {
+        cachedAccessToken = activeToken;
+        const gUser: GoogleUser = {
+          uid: user.uid,
+          displayName: user.displayName,
+          email: user.email,
+          photoURL: user.photoURL,
+        };
+        localStorage.setItem(USER_KEY, JSON.stringify(gUser));
         if (onAuthSuccess) {
-          onAuthSuccess(
-            {
-              uid: user.uid,
-              displayName: user.displayName,
-              email: user.email,
-              photoURL: user.photoURL,
-            },
-            cachedAccessToken
-          );
+          onAuthSuccess(gUser, activeToken);
         }
       } else if (!isSigningIn) {
-        // User is logged in to Firebase session, but need token prompt or silent check
-        cachedAccessToken = null;
         if (onAuthFailure) onAuthFailure();
       }
     } else {
-      cachedAccessToken = null;
-      if (onAuthFailure) onAuthFailure();
+      // Not logged in to Firebase
+      if (!savedToken) {
+        cachedAccessToken = null;
+        if (onAuthFailure) onAuthFailure();
+      }
     }
   });
 };
@@ -63,13 +89,19 @@ export const googleSignIn = async (): Promise<{ user: GoogleUser; accessToken: s
 
     cachedAccessToken = credential.accessToken;
     const user = result.user;
+    const gUser: GoogleUser = {
+      uid: user.uid,
+      displayName: user.displayName,
+      email: user.email,
+      photoURL: user.photoURL,
+    };
+
+    // Save to localStorage for persistent session
+    localStorage.setItem(TOKEN_KEY, credential.accessToken);
+    localStorage.setItem(USER_KEY, JSON.stringify(gUser));
+
     return {
-      user: {
-        uid: user.uid,
-        displayName: user.displayName,
-        email: user.email,
-        photoURL: user.photoURL,
-      },
+      user: gUser,
       accessToken: cachedAccessToken,
     };
   } catch (error: any) {
@@ -78,7 +110,6 @@ export const googleSignIn = async (): Promise<{ user: GoogleUser; accessToken: s
       error?.code === 'auth/popup-closed-by-user' ||
       error?.code === 'auth/cancelled-popup-request'
     ) {
-      // Intentional user cancellation - return null without logging as an error
       return null;
     }
     console.error('Sign in error:', error);
@@ -89,10 +120,26 @@ export const googleSignIn = async (): Promise<{ user: GoogleUser; accessToken: s
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
-  return cachedAccessToken;
+  if (cachedAccessToken) return cachedAccessToken;
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem(TOKEN_KEY);
+    if (saved) {
+      cachedAccessToken = saved;
+      return saved;
+    }
+  }
+  return null;
 };
 
 export const logout = async () => {
-  await signOut(auth);
-  cachedAccessToken = null;
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+    }
+    cachedAccessToken = null;
+    await signOut(auth);
+  } catch (e) {
+    console.warn('Logout error', e);
+  }
 };

@@ -30,6 +30,7 @@ import {
   ChatImageAttachment,
 } from '../types';
 import { sendGeminiChatMessage } from '../services/geminiService';
+import { inferScheduleType } from '../services/googleTasksService';
 
 export interface GeminiAiChatViewProps {
   habits: HabitTask[];
@@ -39,6 +40,7 @@ export interface GeminiAiChatViewProps {
   onAddHabit: (taskData: Omit<HabitTask, 'id' | 'createdAt'>) => Promise<void> | void;
   onBatchAddHabits?: (tasks: Array<Omit<HabitTask, 'id' | 'createdAt'>>) => Promise<void> | void;
   onToggleHabit: (id: string) => Promise<void> | void;
+  onSetHabitStatus?: (id: string, completed: boolean) => Promise<void> | void;
   onDeleteHabit: (id: string) => Promise<void> | void;
   onUpdateHabit?: (id: string, updates: Partial<HabitTask>) => Promise<void> | void;
   onManualSync: () => Promise<void> | void;
@@ -50,7 +52,7 @@ const INITIAL_MESSAGES: ChatMessage[] = [
   {
     id: 'msg-welcome',
     sender: 'assistant',
-    text: 'Halo! Saya **I.R.I.S. AI**, asisten kecerdasan buatan cerdas produktivitas Anda.\n\nSaya terhubung langsung dengan **Google Tasks (label: I.R.I.S. Habit Tracker)**, **Google Sheets**, dan dashboard ini.\n\nAnda dapat meminta saya untuk:\n- 📸 **Membaca foto jadwal/catatan** (Klik tombol **+** di kiri untuk upload foto jadwal pelajaran, agenda, atau to-do list tulisan tangan)\n- ✨ **Membuat habit / tugas baru** (misal: *"Tambahkan habit Belajar Matematika jam 19:30"*)\n- ⏱️ **Mengubah jam atau prioritas habit**\n- ✅ **Menandai habit selesai/belum**\n- 📊 **Mengevaluasi skor produktivitas & konsistensi**\n\nSilakan ketik pesan atau unggah foto jadwal Anda!',
+    text: 'Halo! Saya **I.R.I.S. AI**, asisten produktivitas Anda.\n\nSistem ini terhubung langsung dengan:\n- 📋 **Google Tasks (Daftar: Tugas Saya)** sebagai input centang tugas\n- 📊 **Google Sheets** sebagai database permanen & log historis\n- 📈 **Web App Dashboard** sebagai output visual grafik produktivitas\n\nKEMAMPUAN SAYA:\n- 📸 **Membaca foto jadwal/catatan** (Klik tombol **+** di kiri untuk upload foto jadwal pelajaran, agenda kuliah/sekolah, atau to-do list tulisan tangan. Saya akan otomatis menjadwalkan ke Google Tasks!)\n- ✨ **Membuat habit baru** (misal: *"Tambahkan habit Belajar Matematika jam 19:30"*)\n- ⏱️ **Mengubah jam atau prioritas habit**\n- ✅ **Menandai habit selesai/belum**\n- 📊 **Mengevaluasi skor produktivitas & konsistensi**\n\nSilakan ketik pesan atau unggah foto jadwal Anda!',
     timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
   },
 ];
@@ -119,6 +121,7 @@ export const GeminiAiChatView: React.FC<GeminiAiChatViewProps> = ({
   onAddHabit,
   onBatchAddHabits,
   onToggleHabit,
+  onSetHabitStatus,
   onDeleteHabit,
   onUpdateHabit,
   onManualSync,
@@ -196,67 +199,105 @@ export const GeminiAiChatView: React.FC<GeminiAiChatViewProps> = ({
 
   const executeAction = async (action: AIAction) => {
     try {
-      if (action.type === 'ADD_HABIT' && action.habit?.title) {
+      const actType = (action.type || '').toUpperCase();
+      const habitTitle =
+        action.habit?.title ||
+        action.targetTitle ||
+        (action as any).title ||
+        action.description?.replace(/^(menambahkan|tambah|jadwalkan|buat)\s+/i, '');
+
+      if (
+        (actType === 'ADD_HABIT' || actType === 'ADD_TASK' || actType === 'CREATE_TASK' || actType === 'SCHEDULE_EVENT') &&
+        habitTitle
+      ) {
         await onAddHabit({
-          title: action.habit.title,
-          category: action.habit.category || 'Rutin Harian',
-          time: action.habit.time || '08:00',
-          completed: action.habit.completed || false,
-          priority: action.habit.priority || 'medium',
-          durationMinutes: action.habit.durationMinutes || 30,
-          notes: action.habit.notes || `Ditambahkan via I.R.I.S. Gemini AI`,
+          title: habitTitle,
+          category: (action.habit?.category as any) || 'Rutin Harian',
+          scheduleType:
+            (action.habit as any)?.scheduleType ||
+            inferScheduleType(habitTitle, action.habit?.notes || action.description),
+          time: action.habit?.time || '08:00',
+          completed: action.habit?.completed || false,
+          priority: action.habit?.priority || 'medium',
+          durationMinutes: action.habit?.durationMinutes || 30,
+          notes: action.habit?.notes || `Ditambahkan via I.R.I.S. Gemini AI (${action.description || 'Foto/Teks'})`,
         });
-      } else if (action.type === 'BATCH_ADD_HABITS' && action.habits && action.habits.length > 0) {
-        if (onBatchAddHabits) {
-          await onBatchAddHabits(
-            action.habits.map((h) => ({
-              title: h.title || 'Habit Baru',
-              category: h.category || 'Rutin Harian',
-              time: h.time || '08:00',
-              completed: false,
-              priority: h.priority || 'medium',
-              durationMinutes: h.durationMinutes || 30,
-              notes: h.notes || 'Ditambahkan via I.R.I.S. Gemini AI (Foto/Teks)',
-            }))
-          );
-        } else {
-          for (const h of action.habits) {
-            if (h.title) {
-              await onAddHabit({
-                title: h.title,
-                category: h.category || 'Rutin Harian',
+      } else if (
+        actType === 'BATCH_ADD_HABITS' ||
+        (Array.isArray(action.habits) && action.habits.length > 0)
+      ) {
+        const rawList = action.habits || [];
+        const validList = rawList.filter((h) => h && h.title);
+        if (validList.length > 0) {
+          if (onBatchAddHabits) {
+            await onBatchAddHabits(
+              validList.map((h) => ({
+                title: h.title || 'Kegiatan Baru',
+                category: (h.category as any) || 'Rutin Harian',
+                scheduleType:
+                  (h as any).scheduleType ||
+                  inferScheduleType(h.title || '', h.notes || action.description || ''),
                 time: h.time || '08:00',
                 completed: false,
                 priority: h.priority || 'medium',
                 durationMinutes: h.durationMinutes || 30,
-                notes: h.notes || 'Ditambahkan via I.R.I.S. Gemini AI',
-              });
+                notes: h.notes || 'Ditambahkan otomatis via I.R.I.S. Gemini AI (Foto Jadwal)',
+              }))
+            );
+          } else {
+            for (const h of validList) {
+              if (h.title) {
+                await onAddHabit({
+                  title: h.title,
+                  category: (h.category as any) || 'Rutin Harian',
+                  scheduleType:
+                    (h as any).scheduleType ||
+                    inferScheduleType(h.title, h.notes || ''),
+                  time: h.time || '08:00',
+                  completed: false,
+                  priority: h.priority || 'medium',
+                  durationMinutes: h.durationMinutes || 30,
+                  notes: h.notes || 'Ditambahkan via I.R.I.S. Gemini AI',
+                });
+              }
             }
           }
         }
-      } else if (action.type === 'TOGGLE_HABIT') {
+      } else if (
+        actType === 'TOGGLE_HABIT' ||
+        actType === 'COMPLETE_HABIT' ||
+        actType === 'MARK_DONE' ||
+        actType === 'MARK_COMPLETED'
+      ) {
+        const query = (action.targetTitle || habitTitle || '').toLowerCase().trim();
         const found = habits.find(
           (h) =>
             (action.targetId && h.id === action.targetId) ||
-            (action.targetTitle && h.title.toLowerCase().includes(action.targetTitle.toLowerCase()))
+            (query && (h.title.toLowerCase().includes(query) || query.includes(h.title.toLowerCase())))
         );
         if (found) {
-          await onToggleHabit(found.id);
+          if (onSetHabitStatus && action.completed !== undefined) {
+            await onSetHabitStatus(found.id, action.completed);
+          } else {
+            await onToggleHabit(found.id);
+          }
         }
-      } else if (action.type === 'DELETE_HABIT') {
+      } else if (actType === 'DELETE_HABIT' || actType === 'REMOVE_HABIT') {
+        const query = (action.targetTitle || habitTitle || '').toLowerCase().trim();
         const found = habits.find(
           (h) =>
             (action.targetId && h.id === action.targetId) ||
-            (action.targetTitle && h.title.toLowerCase().includes(action.targetTitle.toLowerCase()))
+            (query && (h.title.toLowerCase().includes(query) || query.includes(h.title.toLowerCase())))
         );
         if (found) {
           await onDeleteHabit(found.id);
         }
-      } else if (action.type === 'UPDATE_HABIT' && onUpdateHabit) {
+      } else if (actType === 'UPDATE_HABIT' && onUpdateHabit) {
+        const query = (action.targetTitle || habitTitle || '').toLowerCase().trim();
         const found = habits.find(
           (h) =>
             (action.targetId && h.id === action.targetId) ||
-            (action.targetTitle && h.title.toLowerCase().includes(action.targetTitle.toLowerCase()))
+            (query && (h.title.toLowerCase().includes(query) || query.includes(h.title.toLowerCase())))
         );
         if (found && action.habit) {
           await onUpdateHabit(found.id, action.habit);
@@ -377,15 +418,15 @@ export const GeminiAiChatView: React.FC<GeminiAiChatViewProps> = ({
         <div className="flex items-center gap-2 flex-wrap text-xs w-full md:w-auto">
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700/80 font-medium">
             <CheckSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <span className="truncate max-w-[130px] sm:max-w-none">
-              Google Tasks: <strong className="font-bold text-slate-900 dark:text-white">{syncState.isConnected ? 'I.R.I.S. Tracker' : 'Siap Sync'}</strong>
+            <span className="truncate max-w-[150px] sm:max-w-none">
+              Google Tasks: <strong className="font-bold text-slate-900 dark:text-white">{syncState.isConnected ? (syncState.taskListName || 'Tugas Saya') : 'Siap Sync'}</strong>
             </span>
           </div>
 
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700/80 font-medium">
             <FileSpreadsheet className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
-            <span className="truncate max-w-[130px] sm:max-w-none">
-              Sheets: <strong className="font-bold text-slate-900 dark:text-white">{syncState.spreadsheetId ? 'Tersambung' : 'Siap Sync'}</strong>
+            <span className="truncate max-w-[150px] sm:max-w-none">
+              Sheets DB: <strong className="font-bold text-slate-900 dark:text-white">{syncState.spreadsheetId ? 'Database Aktif' : 'Siap Sync'}</strong>
             </span>
           </div>
 

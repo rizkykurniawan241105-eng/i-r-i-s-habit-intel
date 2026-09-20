@@ -9,7 +9,7 @@ function getGeminiClient(): GoogleGenAI {
   if (!geminiClient) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new Error("GEMINI_API_KEY environment variable is required");
+      throw new Error("GEMINI_API_KEY environment variable is missing");
     }
     geminiClient = new GoogleGenAI({
       apiKey,
@@ -27,7 +27,8 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: "10mb" }));
+  // Middleware
+  app.use(express.json({ limit: "15mb" }));
 
   // API Health check
   app.get("/api/health", (_req, res) => {
@@ -45,102 +46,60 @@ async function startServer() {
 
       const ai = getGeminiClient();
 
-      const systemInstruction = `Anda adalah "I.R.I.S. AI", asisten kecerdasan buatan cerdas untuk dashboard produktivitas dan habit tracker "I.R.I.S. Habit Intel".
-Aplikasi ini terhubung langsung dengan Google Tasks (label: "I.R.I.S. Habit Tracker"), Google Sheets ("I.R.I.S. Habit Intel - Daily Logs & Metrics"), dan Google Calendar.
+      const systemInstruction = `Anda adalah "I.R.I.S. AI", asisten kecerdasan buatan cerdas untuk dashboard produktivitas "I.R.I.S. Habit Intel".
+Aplikasi ini terhubung langsung dengan:
+1. Google Tasks (Daftar "Tugas Saya" - sebagai input centang tugas)
+2. Google Sheets ("I.R.I.S. Habit Intel - Database & Log Harian" - sebagai database permanen)
+3. Dashboard Web App ini (sebagai output tampilan visual & grafik)
 
-PERAN & KEMAMPUAN MULTIMODAL ANDA:
-1. Membaca dan menganalisis gambar/foto yang diunggah pengguna (seperti jadwal pelajaran/kuliah, jadwal shift, jadwal ujian, foto catatan to-do list tulisan tangan, jadwal ibadah, silabus, atau kalender kegiatan).
-2. Mengekstrak waktu (format 24-jam "HH:mm" seperti "07:00", "13:30", "19:30"), nama mata pelajaran/kegiatan, kategori yang cocok, prioritas ("low"|"medium"|"high"), dan durasi (menit).
-3. Mengubah hasil pembacaan foto menjadi aksi 'BATCH_ADD_HABITS' atau 'ADD_HABIT' agar kegiatan dari foto tersebut otomatis terdaftar di Google Tasks dan dashboard.
-4. Membantu pengguna membuat, memodifikasi, menghapus, atau menandai selesai tugas/kebiasaan harian.
-5. Memberikan analisis produktivitas, saran jadwal yang optimal, motivasi, dan evaluasi harian.
-6. Kategori yang valid untuk habit adalah:
+TUGAS & KEMAMPUAN UTAMA ANDA:
+1. MENGANALISIS FOTO JADWAL / TO-DO LIST:
+   - Jika pengguna mengirim foto jadwal pelajaran sekolah/kuliah, agenda kerja, jadwal shift, jadwal ibadah, atau to-do list tulisan tangan:
+   - Anda WAJIB membaca teks, jam kegiatan (format 24 jam "HH:mm"), dan nama kegiatan dari foto tersebut.
+   - Anda WAJIB membuat aksi 'BATCH_ADD_HABITS' atau 'ADD_HABIT' di dalam array 'actions' agar setiap butir jadwal di foto tersebut otomatis tersimpan ke Google Tasks dan Google Sheets!
+2. MENJALANKAN PERINTAH TEKS PENGGUNA:
+   - "Tambahkan habit / tugas ...": Buat aksi ADD_HABIT.
+   - "Tandai tugas ... sudah selesai" atau "centang ...": Buat aksi TOGGLE_HABIT dengan completed: true.
+   - "Tandai ... belum selesai" atau "uncentang ...": Buat aksi TOGGLE_HABIT dengan completed: false.
+   - "Ubah jam ... menjadi ...": Buat aksi UPDATE_HABIT.
+   - "Hapus tugas ...": Buat aksi DELETE_HABIT.
+   - "Buatkan jadwal / habit mikro ...": Buat aksi BATCH_ADD_HABITS dengan beberapa rekomendasi habit.
+3. JADWAL HARI KERJA VS AKHIR PEKAN (PENTING):
+   - Kegiatan hari Senin sampai Jumat (sekolah, kantor, kuliah, les) -> scheduleType: 'weekday'
+   - Kegiatan hari Sabtu dan Minggu (rehat, liburan, olahraga akhir pekan) -> scheduleType: 'weekend'
+   - Kegiatan setiap hari (ibadah sholat, tidur, minum air, makan) -> scheduleType: 'all'
+4. KATEGORI VALID:
    - "Ibadah"
    - "Sekolah/Belajar"
    - "Rutin Harian"
    - "Rehat/OSIS"
    - "Olahraga & Kesehatan"
-7. Format waktu adalah "HH:mm" (24-jam, misalnya "04:50", "07:00", "19:30").
-8. Prioritas: "low", "medium", atau "high".
-9. Durasi default: 15-60 menit (dalam menit).
 
-INFORMASI KONDISI SAAT INI:
-- Daftar Habits Pengguna saat ini: ${JSON.stringify(currentHabits || [], null, 2)}
-- Statistik Pengguna: ${JSON.stringify(stats || {}, null, 2)}
-- Waktu lokal sekarang: ${new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })}
+DAFTAR TUGAS SAAT INI DI APLIKASI:
+${JSON.stringify(currentHabits || [], null, 2)}
 
-INSTRUKSI FORMAT OUTPUT:
-Anda WAJIB selalu mengembalikan output dalam format JSON yang valid dengan struktur berikut:
+STATISTIK:
+${JSON.stringify(stats || {}, null, 2)}
+
+ATURAN STRUKTUR JSON:
+Anda WAJIB selalu mengembalikan respon JSON valid:
 {
-  "message": "Penjelasan ramah, sopan, dan terstruktur dalam Bahasa Indonesia kepada pengguna tentang apa yang telah dibaca dari foto atau apa yang telah dianalisis/dijadwalkan.",
+  "message": "Penjelasan ramah, sopan, dan jelas dalam Bahasa Indonesia tentang apa yang dibaca dari foto atau aksi apa yang telah dijalankan.",
   "actions": [
-    // Array aksi yang perlu dijalankan aplikasi (jika pengguna meminta perubahan data):
-    // 1. Menambah habit baru:
-    // {
-    //   "type": "ADD_HABIT",
-    //   "habit": {
-    //     "title": "Nama Habit",
-    //     "category": "Sekolah/Belajar",
-    //     "time": "19:30",
-    //     "priority": "high",
-    //     "durationMinutes": 45,
-    //     "notes": "Catatan opsional"
-    //   },
-    //   "description": "Menambahkan habit 'Nama Habit' pada pukul 19:30"
-    // }
-    // 2. Mengubah habit yang ada:
-    // {
-    //   "type": "UPDATE_HABIT",
-    //   "targetId": "id-habit-atau-target-title",
-    //   "targetTitle": "Nama Habit Sebelumnya",
-    //   "habit": { "time": "20:00", "priority": "high" },
-    //   "description": "Mengubah jadwal 'Nama Habit' menjadi 20:00"
-    // }
-    // 3. Menandai selesai / belum selesai:
-    // {
-    //   "type": "TOGGLE_HABIT",
-    //   "targetTitle": "Nama Habit",
-    //   "completed": true,
-    //   "description": "Menandai 'Nama Habit' sebagai selesai"
-    // }
-    // 4. Menghapus habit:
-    // {
-    //   "type": "DELETE_HABIT",
-    //   "targetTitle": "Nama Habit",
-    //   "description": "Menghapus habit 'Nama Habit'"
-    // }
-    // 5. Menambahkan banyak habit sekaligus (misal breakdown jadwal atau hasil ekstrak foto jadwal):
-    // {
-    //   "type": "BATCH_ADD_HABITS",
-    //   "habits": [...],
-    //   "description": "Menambahkan 4 kegiatan dari foto jadwal"
-    // }
+    // Array aksi yang harus dijalankan. JANGAN KOSONGKAN jika user minta tambah tugas, ubah status, atau kirim foto jadwal!
   ]
-}
+}`;
 
-Jika pengguna hanya bertanya atau berdiskusi (tanpa minta menambah/mengubah tugas), isi "actions": [].
-Pastikan bahasa selalu suportif, ringkas, dan jelas!`;
-
-      // Format conversation contents
+      // Build conversation contents cleanly
       const formattedContents: any[] = [];
 
+      // History (only text to prevent payload bloat)
       if (Array.isArray(history)) {
-        for (const item of history.slice(-8)) {
+        for (const item of history.slice(-6)) {
           if (item.sender === "user") {
-            const parts: any[] = [];
-            if (item.image && item.image.data) {
-              const b64 = item.image.data.includes("base64,") ? item.image.data.split("base64,")[1] : item.image.data;
-              parts.push({
-                inlineData: {
-                  mimeType: item.image.mimeType || "image/jpeg",
-                  data: b64,
-                },
-              });
-            }
-            parts.push({ text: item.text || "Gambar terlampir" });
             formattedContents.push({
               role: "user",
-              parts,
+              parts: [{ text: item.text || (item.image ? "[Foto jadwal dilampirkan]" : "") }],
             });
           } else if (item.sender === "assistant") {
             formattedContents.push({
@@ -151,10 +110,14 @@ Pastikan bahasa selalu suportif, ringkas, dan jelas!`;
         }
       }
 
-      // Build current user message parts
+      // Current user parts (multimodal image + prompt)
       const currentUserParts: any[] = [];
+
       if (image && image.data) {
-        const b64 = image.data.includes("base64,") ? image.data.split("base64,")[1] : image.data;
+        let b64 = image.data;
+        if (b64.includes("base64,")) {
+          b64 = b64.split("base64,")[1];
+        }
         currentUserParts.push({
           inlineData: {
             mimeType: image.mimeType || "image/jpeg",
@@ -162,17 +125,20 @@ Pastikan bahasa selalu suportif, ringkas, dan jelas!`;
           },
         });
       }
-      currentUserParts.push({
-        text: message && message.trim() ? message : "Silakan analisis foto/dokumen ini, lalu buatkan dan jadwalkan kegiatan atau tugas yang relevan ke dalam Google Tasks dan habit tracker.",
-      });
+
+      const promptText = message && message.trim()
+        ? message
+        : "Tolong baca dan ekstrak seluruh jadwal atau to-do list yang tertera di foto ini, lalu masukkan semuanya ke actions (BATCH_ADD_HABITS) agar tersimpan ke Google Tasks dan Google Sheets.";
+
+      currentUserParts.push({ text: promptText });
 
       formattedContents.push({
         role: "user",
         parts: currentUserParts,
       });
 
-      // Helper function to call Gemini with retry & fallback models for high demand (503)
-      const candidateModels = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
+      // Candidate models: start with gemini-3.1-flash-lite for ultra-fast response & high reliability
+      const candidateModels = ["gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"];
       let response: any = null;
       let lastError: any = null;
 
@@ -184,7 +150,7 @@ Pastikan bahasa selalu suportif, ringkas, dan jelas!`;
           properties: {
             message: {
               type: Type.STRING,
-              description: "Balasan percakapan dalam Bahasa Indonesia",
+              description: "Pesan balasan ramah dalam Bahasa Indonesia",
             },
             actions: {
               type: Type.ARRAY,
@@ -193,14 +159,19 @@ Pastikan bahasa selalu suportif, ringkas, dan jelas!`;
                 properties: {
                   type: {
                     type: Type.STRING,
-                    description: "Jenis aksi: ADD_HABIT, UPDATE_HABIT, DELETE_HABIT, TOGGLE_HABIT, BATCH_ADD_HABITS",
+                    description: "ADD_HABIT, BATCH_ADD_HABITS, TOGGLE_HABIT, UPDATE_HABIT, DELETE_HABIT",
                   },
+                  description: { type: Type.STRING },
+                  targetTitle: { type: Type.STRING },
+                  targetId: { type: Type.STRING },
+                  completed: { type: Type.BOOLEAN },
                   habit: {
                     type: Type.OBJECT,
                     properties: {
                       title: { type: Type.STRING },
                       category: { type: Type.STRING },
                       time: { type: Type.STRING },
+                      scheduleType: { type: Type.STRING },
                       priority: { type: Type.STRING },
                       durationMinutes: { type: Type.NUMBER },
                       notes: { type: Type.STRING },
@@ -215,6 +186,7 @@ Pastikan bahasa selalu suportif, ringkas, dan jelas!`;
                         title: { type: Type.STRING },
                         category: { type: Type.STRING },
                         time: { type: Type.STRING },
+                        scheduleType: { type: Type.STRING },
                         priority: { type: Type.STRING },
                         durationMinutes: { type: Type.NUMBER },
                         notes: { type: Type.STRING },
@@ -222,10 +194,6 @@ Pastikan bahasa selalu suportif, ringkas, dan jelas!`;
                       },
                     },
                   },
-                  targetId: { type: Type.STRING },
-                  targetTitle: { type: Type.STRING },
-                  completed: { type: Type.BOOLEAN },
-                  description: { type: Type.STRING },
                 },
                 required: ["type", "description"],
               },
@@ -248,21 +216,9 @@ Pastikan bahasa selalu suportif, ringkas, dan jelas!`;
             }
           } catch (err: any) {
             lastError = err;
-            const isUnavailable =
-              err?.status === 503 ||
-              err?.status === 429 ||
-              err?.message?.includes("503") ||
-              err?.message?.includes("high demand") ||
-              err?.message?.includes("UNAVAILABLE");
-            
-            console.warn(`Model ${modelName} attempt ${attempt} failed:`, err?.message || err);
-            
-            if (isUnavailable && attempt < 2) {
-              // Wait 700ms before retrying the same or next model
-              await new Promise((resolve) => setTimeout(resolve, 700 * attempt));
-            } else if (!isUnavailable) {
-              // Not a 503/transient error, try next candidate
-              break;
+            console.warn(`Model ${modelName} attempt ${attempt} error:`, err?.status || err?.message);
+            if (attempt < 2) {
+              await new Promise((resolve) => setTimeout(resolve, 600));
             }
           }
         }
@@ -272,25 +228,104 @@ Pastikan bahasa selalu suportif, ringkas, dan jelas!`;
       }
 
       if (!response || !response.text) {
-        throw lastError || new Error("Semua model Gemini sedang mengalami antrian tinggi. Silakan coba kembali sesaat lagi.");
+        throw lastError || new Error("Tidak dapat menghubungi layanan Gemini AI. Silakan coba kembali.");
       }
 
-      const textResponse = response.text || "{}";
+      const textResponse = response.text.trim();
       let parsedData: any = {};
       try {
         parsedData = JSON.parse(textResponse);
       } catch (err) {
-        console.warn("Could not parse JSON from Gemini response, fallback to text", err);
-        parsedData = {
-          message: textResponse,
-          actions: [],
-        };
+        console.warn("Fallback JSON parse error", err);
+        parsedData = { message: textResponse, actions: [] };
+      }
+
+      // Normalize actions for safety
+      const rawActions = Array.isArray(parsedData.actions) ? parsedData.actions : [];
+      const normalizedActions: any[] = [];
+
+      for (const act of rawActions) {
+        if (!act) continue;
+        const actType = (act.type || "").toUpperCase();
+
+        // 1. Batch habits
+        if (actType === "BATCH_ADD_HABITS" || (Array.isArray(act.habits) && act.habits.length > 0)) {
+          const validHabits = (act.habits || []).filter((h: any) => h && h.title);
+          if (validHabits.length > 0) {
+            normalizedActions.push({
+              type: "BATCH_ADD_HABITS",
+              description: act.description || `Menambahkan ${validHabits.length} kegiatan dari jadwal`,
+              habits: validHabits,
+            });
+          }
+        }
+        // 2. Single habit add
+        else if (
+          actType === "ADD_HABIT" ||
+          actType === "ADD_TASK" ||
+          actType === "CREATE_TASK" ||
+          actType === "SCHEDULE_EVENT" ||
+          act.habit?.title ||
+          act.targetTitle
+        ) {
+          const habitTitle = act.habit?.title || act.targetTitle || act.description?.replace(/^(Menambahkan|Tambah|Jadwalkan)\s+/i, "");
+          if (habitTitle) {
+            normalizedActions.push({
+              type: "ADD_HABIT",
+              description: act.description || `Menambahkan tugas ${habitTitle}`,
+              habit: {
+                title: habitTitle,
+                category: act.habit?.category || "Rutin Harian",
+                time: act.habit?.time || "08:00",
+                scheduleType: act.habit?.scheduleType || "all",
+                priority: act.habit?.priority || "medium",
+                durationMinutes: act.habit?.durationMinutes || 30,
+                notes: act.habit?.notes || "Dibuat otomatis oleh I.R.I.S. Gemini AI",
+                completed: false,
+              },
+            });
+          }
+        }
+        // 3. Toggle/Complete
+        else if (
+          actType === "TOGGLE_HABIT" ||
+          actType === "COMPLETE_HABIT" ||
+          actType === "MARK_DONE" ||
+          actType === "MARK_COMPLETED"
+        ) {
+          normalizedActions.push({
+            type: "TOGGLE_HABIT",
+            targetTitle: act.targetTitle || act.habit?.title || "",
+            targetId: act.targetId,
+            completed: act.completed !== false,
+            description: act.description || `Menandai tugas sebagai selesai`,
+          });
+        }
+        // 4. Update
+        else if (actType === "UPDATE_HABIT" || actType === "EDIT_HABIT") {
+          normalizedActions.push({
+            type: "UPDATE_HABIT",
+            targetTitle: act.targetTitle || act.habit?.title || "",
+            targetId: act.targetId,
+            habit: act.habit || {},
+            description: act.description || `Memperbarui detail tugas`,
+          });
+        }
+        // 5. Delete
+        else if (actType === "DELETE_HABIT" || actType === "REMOVE_HABIT") {
+          normalizedActions.push({
+            type: "DELETE_HABIT",
+            targetTitle: act.targetTitle || "",
+            targetId: act.targetId,
+            description: act.description || `Menghapus tugas`,
+          });
+        }
       }
 
       return res.json({
         success: true,
-        message: parsedData.message || textResponse,
-        actions: Array.isArray(parsedData.actions) ? parsedData.actions : [],
+        message: parsedData.message || "Permintaan Anda telah diproses.",
+        actions: normalizedActions,
       });
     } catch (error: any) {
       console.error("Gemini Chat API Error:", error);
@@ -316,11 +351,8 @@ Pastikan bahasa selalu suportif, ringkas, dan jelas!`;
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`I.R.I.S. Habit Intel Server running on http://0.0.0.0:${PORT}`);
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
 }
 
-startServer().catch((err) => {
-  console.error("Server start failed:", err);
-  process.exit(1);
-});
+startServer();

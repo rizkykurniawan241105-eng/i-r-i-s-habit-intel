@@ -81,42 +81,61 @@ export const CalendarScheduleWidget: React.FC<CalendarScheduleWidgetProps> = ({
           </div>
 
           <div className="relative pl-6 space-y-4 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-800">
-            {sortedHabits.map((habit) => {
-              const categoryColor = CATEGORY_COLORS[habit.category] || CATEGORY_COLORS['Sekolah/Belajar'];
-              return (
-                <div key={habit.id} className="relative group">
-                  {/* Dot */}
-                  <span
-                    className={`absolute -left-[19px] top-2 w-3.5 h-3.5 rounded-full border-2 transition-all ${
-                      habit.completed
-                        ? 'bg-emerald-500 border-white dark:border-slate-900 ring-2 ring-emerald-500/30'
-                        : 'bg-white dark:bg-slate-800 border-indigo-500 ring-2 ring-indigo-500/20'
-                    }`}
-                  />
+            {sortedHabits.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-400">
+                Belum ada timeline habit. Tambahkan kegiatan baru untuk memvisualisasikan alur waktu.
+              </div>
+            ) : (
+              sortedHabits.map((habit) => {
+                const categoryColor = CATEGORY_COLORS[habit.category] || CATEGORY_COLORS['Sekolah/Belajar'];
+                return (
+                  <div key={habit.id} className="relative group">
+                    {/* Dot */}
+                    <span
+                      className={`absolute -left-[19px] top-2 w-3.5 h-3.5 rounded-full border-2 transition-all ${
+                        habit.completed
+                          ? 'bg-emerald-500 border-white dark:border-slate-900 ring-2 ring-emerald-500/30'
+                          : 'bg-white dark:bg-slate-800 border-indigo-500 ring-2 ring-indigo-500/20'
+                      }`}
+                    />
 
-                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 hover:border-indigo-300 dark:hover:border-indigo-700 transition">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                        {habit.title}
-                      </span>
-                      <span className="text-[11px] font-extrabold text-indigo-600 dark:text-indigo-400">
-                        {habit.time} WIB
-                      </span>
-                    </div>
-                    <div className="mt-1 flex items-center gap-2">
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${categoryColor.bgBadge}`}>
-                        {habit.category}
-                      </span>
-                      {habit.notes && (
-                        <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-xs">
-                          {habit.notes}
+                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 hover:border-indigo-300 dark:hover:border-indigo-700 transition">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                          {habit.title}
                         </span>
-                      )}
+                        <span className="text-[11px] font-extrabold text-indigo-600 dark:text-indigo-400">
+                          {habit.time} WIB
+                        </span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${categoryColor.bgBadge}`}>
+                          {habit.category}
+                        </span>
+                        {habit.scheduleType === 'weekday' ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60">
+                            Senin - Jumat
+                          </span>
+                        ) : habit.scheduleType === 'weekend' ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800/60">
+                            Sabtu - Minggu
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                            Setiap Hari
+                          </span>
+                        )}
+                        {habit.notes && (
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-xs">
+                            {habit.notes}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
 

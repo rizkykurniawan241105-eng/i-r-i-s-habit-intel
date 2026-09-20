@@ -2,6 +2,8 @@ export type CategoryType = 'Ibadah' | 'Sekolah/Belajar' | 'Rutin Harian' | 'Reha
 
 export type TimeFilter = 'today' | 'week' | 'month';
 
+export type ScheduleType = 'all' | 'weekday' | 'weekend';
+
 export interface HabitTask {
   id: string;
   title: string;
@@ -10,8 +12,10 @@ export interface HabitTask {
   completed: boolean;
   priority: 'low' | 'medium' | 'high';
   notes?: string;
+  scheduleType?: ScheduleType; // 'all' = Setiap Hari, 'weekday' = Senin-Jumat, 'weekend' = Sabtu-Minggu
   googleTaskId?: string;
   googleTaskListId?: string;
+  googleCalendarEventId?: string;
   createdAt: string;
   completedAt?: string;
   durationMinutes?: number;
@@ -49,6 +53,8 @@ export interface GoogleSyncState {
   spreadsheetId: string | null;
   spreadsheetUrl: string | null;
   taskListId: string | null;
+  taskListName?: string | null;
+  databaseLogsCount?: number;
   statusMessage: string | null;
 }
 

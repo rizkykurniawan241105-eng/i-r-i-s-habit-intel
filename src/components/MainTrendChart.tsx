@@ -11,8 +11,8 @@ import {
   Filler,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
-import { TrendingUp, Sparkles, Activity } from 'lucide-react';
-import { TimeFilter, HabitTask } from '../types';
+import { TrendingUp, Sparkles, Activity, Database, ExternalLink } from 'lucide-react';
+import { TimeFilter, HabitTask, DayTrendData } from '../types';
 import { INITIAL_WEEK_TREND, INITIAL_MONTH_TREND } from '../data/dummyData';
 
 ChartJS.register(
@@ -30,22 +30,28 @@ export interface MainTrendChartProps {
   timeFilter: TimeFilter;
   isDarkMode: boolean;
   habits: HabitTask[];
+  historicalTrends?: DayTrendData[];
+  spreadsheetUrl?: string | null;
 }
 
 export const MainTrendChart: React.FC<MainTrendChartProps> = ({
   timeFilter,
   isDarkMode,
   habits = [],
+  historicalTrends = [],
+  spreadsheetUrl,
 }) => {
   const chartRef = useRef<any>(null);
   const safeHabits = Array.isArray(habits) ? habits : [];
 
   const completedTodayCount = safeHabits.filter(h => h && h.completed).length;
   const totalTodayCount = safeHabits.length;
+  const todayPercentage = totalTodayCount > 0 ? Math.round((completedTodayCount / totalTodayCount) * 100) : 0;
 
   let labels: string[] = [];
   let dataPoints: number[] = [];
   let secondaryDataPoints: number[] = [];
+  const hasDbHistory = Array.isArray(historicalTrends) && historicalTrends.length > 0;
 
   if (timeFilter === 'today') {
     labels = ['05:00', '08:00', '12:00', '15:00', '18:00', '21:00', '23:00'];
@@ -57,29 +63,46 @@ export const MainTrendChart: React.FC<MainTrendChartProps> = ({
     const p6 = completedTodayCount;
     const p7 = completedTodayCount;
 
-    dataPoints = [
-      Math.round((p1 / (totalTodayCount || 1)) * 100),
-      Math.round((p2 / (totalTodayCount || 1)) * 100),
-      Math.round((p3 / (totalTodayCount || 1)) * 100),
-      Math.round((p4 / (totalTodayCount || 1)) * 100),
-      Math.round((p5 / (totalTodayCount || 1)) * 100),
-      Math.round((p6 / (totalTodayCount || 1)) * 100),
-      Math.round((p7 / (totalTodayCount || 1)) * 100),
-    ];
-    secondaryDataPoints = [20, 40, 60, 75, 85, 95, 100];
+    if (totalTodayCount === 0) {
+      dataPoints = [0, 0, 0, 0, 0, 0, 0];
+      secondaryDataPoints = [0, 0, 0, 0, 0, 0, 0];
+    } else {
+      dataPoints = [
+        Math.round((p1 / totalTodayCount) * 100),
+        Math.round((p2 / totalTodayCount) * 100),
+        Math.round((p3 / totalTodayCount) * 100),
+        Math.round((p4 / totalTodayCount) * 100),
+        Math.round((p5 / totalTodayCount) * 100),
+        Math.round((p6 / totalTodayCount) * 100),
+        Math.round((p7 / totalTodayCount) * 100),
+      ];
+      secondaryDataPoints = [20, 40, 60, 75, 85, 95, 100];
+    }
   } else if (timeFilter === 'week') {
-    labels = INITIAL_WEEK_TREND.map(d => d.date);
-    dataPoints = INITIAL_WEEK_TREND.map((d, idx) => {
-      if (idx === INITIAL_WEEK_TREND.length - 1) {
-        return totalTodayCount > 0 ? Math.round((completedTodayCount / totalTodayCount) * 100) : 90;
-      }
-      return d.percentage;
-    });
-    secondaryDataPoints = [75, 80, 85, 80, 85, 80, 85];
+    if (hasDbHistory && historicalTrends.length >= 2) {
+      // Use real historical data loaded from Google Sheets Database!
+      labels = historicalTrends.map(d => d.dayName || d.date.slice(0, 5));
+      dataPoints = historicalTrends.map((d, idx) => {
+        if (idx === historicalTrends.length - 1) {
+          return todayPercentage;
+        }
+        return d.percentage;
+      });
+      secondaryDataPoints = historicalTrends.map(() => 85);
+    } else {
+      labels = INITIAL_WEEK_TREND.map(d => d.date);
+      dataPoints = INITIAL_WEEK_TREND.map((d, idx) => {
+        if (idx === INITIAL_WEEK_TREND.length - 1) {
+          return todayPercentage;
+        }
+        return d.percentage || 0;
+      });
+      secondaryDataPoints = totalTodayCount > 0 ? [75, 80, 85, 80, 85, 80, 85] : [0, 0, 0, 0, 0, 0, 0];
+    }
   } else {
     labels = INITIAL_MONTH_TREND.map(d => d.date);
-    dataPoints = INITIAL_MONTH_TREND.map(d => d.percentage);
-    secondaryDataPoints = [80, 85, 85, 90];
+    dataPoints = totalTodayCount > 0 ? [0, 0, 0, todayPercentage] : [0, 0, 0, 0];
+    secondaryDataPoints = totalTodayCount > 0 ? [80, 85, 85, 90] : [0, 0, 0, 0];
   }
 
   const textColor = isDarkMode ? '#94a3b8' : '#64748b';
@@ -113,15 +136,14 @@ export const MainTrendChart: React.FC<MainTrendChartProps> = ({
         },
       },
       {
-        label: 'Target Baseline (80%)',
+        label: 'Target Baseline (85%)',
         data: secondaryDataPoints,
-        borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.5)',
-        borderWidth: 1.5,
+        borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.5)',
+        borderWidth: 2,
         borderDash: [5, 5],
         pointRadius: 0,
-        pointHoverRadius: 0,
         fill: false,
-        tension: 0.3,
+        tension: 0.2,
       },
     ],
   };
@@ -145,25 +167,23 @@ export const MainTrendChart: React.FC<MainTrendChartProps> = ({
             size: 11,
             weight: '600',
           },
+          boxWidth: 12,
           usePointStyle: true,
-          boxWidth: 8,
-          boxHeight: 8,
         },
       },
       tooltip: {
-        backgroundColor: isDarkMode ? '#1e293b' : '#0f172a',
-        titleColor: '#ffffff',
-        bodyColor: '#e2e8f0',
-        borderColor: isDarkMode ? '#334155' : '#334155',
+        backgroundColor: isDarkMode ? '#0F172A' : '#FFFFFF',
+        titleColor: isDarkMode ? '#FFFFFF' : '#0F172A',
+        bodyColor: isDarkMode ? '#CBD5E1' : '#334155',
+        borderColor: isDarkMode ? '#334155' : '#E2E8F0',
         borderWidth: 1,
         padding: 12,
         boxPadding: 6,
         usePointStyle: true,
-        cornerRadius: 10,
         titleFont: {
           family: "'Plus Jakarta Sans', sans-serif",
+          size: 12,
           weight: 'bold',
-          size: 13,
         },
         bodyFont: {
           family: "'Plus Jakarta Sans', sans-serif",
@@ -223,18 +243,31 @@ export const MainTrendChart: React.FC<MainTrendChartProps> = ({
           <div className="flex items-center gap-2">
             <h3 className="text-base md:text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-              Grafik Tren Penyelesaian Tugas & Habit
+              Grafik Hasil Tugas & Tren Produktivitas
             </h3>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Visualisasi konsistensi harian dengan kurva presisi dan interpolasi gradient
+            Visualisasi output dari centang Google Tasks yang tersimpan permanen di Google Sheets
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {spreadsheetUrl && (
+            <a
+              href={spreadsheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/60 dark:border-emerald-800/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition"
+              title="Buka Database Spreadsheet"
+            >
+              <Database className="w-3 h-3 text-emerald-500" />
+              <span>Database Sheets</span>
+              <ExternalLink className="w-2.5 h-2.5" />
+            </a>
+          )}
           <span className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-1 rounded-lg border border-indigo-200/60 dark:border-indigo-800/60">
             <Activity className="w-3.5 h-3.5" />
-            {timeFilter === 'today' ? 'Live Track' : timeFilter === 'week' ? '7 Hari Terakhir' : 'Bulan Berjalan'}
+            {timeFilter === 'today' ? 'Hari Ini' : timeFilter === 'week' ? '7 Hari (Sheets DB)' : 'Bulan Berjalan'}
           </span>
         </div>
       </div>
@@ -248,10 +281,11 @@ export const MainTrendChart: React.FC<MainTrendChartProps> = ({
       <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between text-xs text-slate-500 dark:text-slate-400 gap-2">
         <div className="flex items-center gap-1.5">
           <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-          <span>Fokus Puncak: <strong>Pagi & Sore Hari (07.30 - 18.00)</strong></span>
+          <span>Fokus Puncak: <strong>Pagi & Sore Hari (07.30 - 18.00 WIB)</strong></span>
         </div>
-        <div className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">
-          Sinkron dengan Google Sheets Log
+        <div className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+          Input: Google Tasks • Database: Google Sheets
         </div>
       </div>
     </div>
